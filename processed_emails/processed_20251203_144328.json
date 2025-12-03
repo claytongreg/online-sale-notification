@@ -58,5 +58,11 @@
     "email_date": "Wed, 3 Dec 2025 14:36:08 +0000",
     "subject": "Sale Has Been Made Notification",
     "body_preview": "No match - not forwarded"
+  },
+  "<0100019ae4a78382-36ac99ad-45b7-4da8-903b-e884b3f6d244-000000@email.amazonses.com>": {
+    "processed_at": "2025-12-03 14:43:28",
+    "email_date": "Wed, 3 Dec 2025 14:39:34 +0000",
+    "subject": "Sale Has Been Made Notification",
+    "body_preview": "Salt Spring Island Wellness Centre\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\nSale Has Been Made Notification\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r..."
   }
 }
