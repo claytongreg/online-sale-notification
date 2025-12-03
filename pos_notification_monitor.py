@@ -358,10 +358,13 @@ Date: {original_msg.get('Date', 'Unknown')}
             print(f"✗ Error forwarding email: {e}")
             return False
 
-    def send_sms_alert(self):
+    def send_sms_alert(self, customer_name=None, card_letter=None, card_number=None):
         """Send SMS alert via Twilio"""
         try:
-            message_body = "🔔 An online sale has been made!"
+            if customer_name and card_letter and card_number:
+                message_body = f"{customer_name} has purchased online, card key {card_letter} {card_number}"
+            else:
+                message_body = "🔔 An online sale has been made!"
 
             message = self.twilio_client.messages.create(
                 body=message_body,
@@ -425,9 +428,6 @@ Date: {original_msg.get('Date', 'Unknown')}
                 # Forward the email
                 self.forward_email(msg, body)
 
-                # Send SMS alert
-                self.send_sms_alert()
-                
                 # Get next available card key and assign it
                 card_letter = None
                 card_number = None
@@ -436,6 +436,9 @@ Date: {original_msg.get('Date', 'Unknown')}
                     if card_letter and card_number and row_number:
                         # Assign the card in Google Sheets
                         self.assign_card_to_customer(row_number, customer_name)
+
+                # Send SMS alert with customer info
+                self.send_sms_alert(customer_name, card_letter, card_number)
                 
                 # Send customer email with card key info
                 if customer_email:
