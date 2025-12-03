@@ -38,7 +38,13 @@ jobs:
           SUBJECT_FILTER: ${{ secrets.SUBJECT_FILTER }}
           CHECK_INTERVAL: "60"
         run: |
-          timeout 120 python pos_notification_monitor.py || true
+          echo "Starting monitor..."
+          python pos_notification_monitor.py 2>&1 &
+          MONITOR_PID=$!
+          echo "Monitor PID: $MONITOR_PID"
+          sleep 90
+          kill $MONITOR_PID 2>/dev/null || true
+          echo "Monitor stopped"
           
       - name: Save processed emails
         run: |
