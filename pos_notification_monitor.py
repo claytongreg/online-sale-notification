@@ -63,76 +63,10 @@ CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', '60'))  # seconds
 SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'noreply@yourpos.com')  # Filter by sender
 SUBJECT_FILTER = os.getenv('SUBJECT_FILTER', 'Sale Has Been Made Notification')  # Filter by subject
 
-# Processed emails tracking file
-PROCESSED_EMAILS_DIR = 'processed_emails'
-
 
 class POSEmailMonitor:
     def __init__(self):
         self.twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        # Create directory first, before trying to load
-        Path(PROCESSED_EMAILS_DIR).mkdir(exist_ok=True)
-        self.processed_emails = self.load_processed_emails()
-
-    def get_latest_json_file(self):
-        """Get the most recent processed emails JSON file"""
-        files = list(Path(PROCESSED_EMAILS_DIR).glob('processed_*.json'))
-        if files:
-            # Sort by filename (which contains timestamp) to get latest
-            latest = sorted(files)[-1]
-            return latest
-        return None
-
-    def cleanup_old_files(self, keep_file):
-        """Delete all JSON files except the one to keep"""
-        for file in Path(PROCESSED_EMAILS_DIR).glob('processed_*.json'):
-            if file != keep_file:
-                try:
-                    file.unlink()
-                    print(f"Deleted old file: {file}")
-                except Exception as e:
-                    print(f"Could not delete {file}: {e}")
-
-    def load_processed_emails(self):
-        """Load processed emails from most recent JSON file"""
-        latest_file = self.get_latest_json_file()
-        if latest_file:
-            try:
-                with open(latest_file, 'r') as f:
-                    data = json.load(f)
-                    print(f"Loaded {len(data)} previously processed emails from {latest_file}")
-                    return data
-            except Exception as e:
-                print(f"Warning: Could not load {latest_file}: {e}")
-                return {}
-        return {}
-
-    def save_processed_emails(self):
-        """Save processed emails to new timestamped JSON file"""
-        try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            new_file = Path(PROCESSED_EMAILS_DIR) / f'processed_{timestamp}.json'
-            with open(new_file, 'w') as f:
-                json.dump(self.processed_emails, f, indent=2)
-            print(f"Saved to {new_file}")
-            # Clean up old files
-            self.cleanup_old_files(new_file)
-        except Exception as e:
-            print(f"Warning: Could not save: {e}")
-
-    def mark_as_processed(self, message_id, email_date, subject, body_preview):
-        """Mark an email as processed and save to JSON"""
-        self.processed_emails[message_id] = {
-            'processed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'email_date': email_date,
-            'subject': subject,
-            'body_preview': body_preview[:100] + '...' if len(body_preview) > 100 else body_preview
-        }
-        self.save_processed_emails()
-
-    def is_already_processed(self, message_id):
-        """Check if email was already processed"""
-        return message_id in self.processed_emails
 
     def connect_to_email(self):
         """Connect to email server via IMAP"""
@@ -438,20 +372,10 @@ Date: {original_msg.get('Date', 'Unknown')}
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
 
-            # Get unique identifier
-            message_id = msg.get('Message-ID', '')
-            if not message_id:
-                print("⚠ Email has no Message-ID, skipping...")
-                return
-
-            # Check if already processed (using JSON tracking)
-            if self.is_already_processed(message_id):
-                print(f"⚠ Email already processed (Message-ID: {message_id[:50]}...), skipping")
-                return
-
             # Get sender and subject
             sender = msg.get('From', '')
             subject = self.decode_email_subject(msg.get('Subject', ''))
+            message_id = msg.get('Message-ID', '')
 
             # Check if subject matches our filter
             if SUBJECT_FILTER and SUBJECT_FILTER.lower() not in subject.lower():
@@ -497,14 +421,10 @@ Date: {original_msg.get('Date', 'Unknown')}
                 if customer_email:
                     self.send_customer_email(customer_email, customer_name, card_id)
 
-                # Mark as processed
-                self.mark_as_processed(message_id, email_date, subject, body)
-                print(f"✓ Email marked as processed and saved")
+                print(f"✓ Email processed successfully")
             else:
                 print(f"✗ Email does NOT contain exact phrase: '{EXACT_MATCH_PHRASE}'")
                 print(f"   Searched in {len(body)} characters of email body")
-                # Still mark as processed to avoid checking again
-                self.mark_as_processed(message_id, email_date, subject, "No match - not forwarded")
 
         except Exception as e:
             print(f"Error processing email: {e}")
@@ -512,7 +432,7 @@ Date: {original_msg.get('Date', 'Unknown')}
             traceback.print_exc()
 
     def check_new_emails(self):
-        """Check for new emails and process them"""
+        """Check for new UNSEEN emails and process them"""
         mail = self.connect_to_email()
         if not mail:
             return
@@ -521,11 +441,11 @@ Date: {original_msg.get('Date', 'Unknown')}
             # Select inbox
             mail.select('INBOX')
 
-            # Search for emails with specific subject (checks ALL emails, not just unread)
+            # Search for UNSEEN emails with specific subject
             if SUBJECT_FILTER:
-                search_criteria = f'(SUBJECT "{SUBJECT_FILTER}")'
+                search_criteria = f'(UNSEEN SUBJECT "{SUBJECT_FILTER}")'
             else:
-                search_criteria = 'ALL'
+                search_criteria = 'UNSEEN'
 
             status, messages = mail.search(None, search_criteria)
 
@@ -533,11 +453,11 @@ Date: {original_msg.get('Date', 'Unknown')}
                 email_ids = messages[0].split()
 
                 if email_ids:
-                    print(f"\nFound {len(email_ids)} email(s) matching criteria")
+                    print(f"\nFound {len(email_ids)} UNSEEN email(s) matching criteria")
                     for email_id in email_ids:
                         self.process_email(mail, email_id)
                 else:
-                    print(".", end="", flush=True)
+                    print("No new unread emails")
 
         except Exception as e:
             print(f"Error checking emails: {e}")
@@ -561,10 +481,8 @@ Date: {original_msg.get('Date', 'Unknown')}
         print(f"Forward to: {FORWARD_TO_EMAIL}")
         print(f"Alert phone: {ALERT_PHONE_NUMBER}")
         print(f"Check interval: {CHECK_INTERVAL} seconds")
-        print(f"Tracking directory: {PROCESSED_EMAILS_DIR}")
-        print(f"Previously processed: {len(self.processed_emails)} emails")
         print()
-        print("NOTE: Checking ALL emails (read and unread) with subject filter")
+        print("NOTE: Checking UNSEEN emails only with subject filter")
         print("      Sender filter: DISABLED")
         print("=" * 70)
 
