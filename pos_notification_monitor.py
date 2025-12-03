@@ -49,6 +49,11 @@ ALERT_PHONE_NUMBER = os.getenv('ALERT_PHONE_NUMBER', '+1234567890')
 # Email forwarding configuration
 FORWARD_TO_EMAIL = os.getenv('FORWARD_TO_EMAIL', 'info@ssiwellness.com')
 
+# Google Sheets configuration
+GOOGLE_SHEETS_CREDS = os.getenv('GOOGLE_SHEETS_CREDS', '')  # JSON string of service account credentials
+GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID', '1nXKE_2bIZ5eDKPPyQKiXDEL6VrGWddXBzBNflBQ1yCo')
+LOCKBOX_CODE = os.getenv('LOCKBOX_CODE', '1125')
+
 # EXACT phrase that must appear in email body
 EXACT_MATCH_PHRASE = os.getenv('EXACT_MATCH_PHRASE',
                                'ONLINE SALE - Auto-Pay Adult Fitness Membership with Card Key')
@@ -174,6 +179,89 @@ class POSEmailMonitor:
                 pass
         return body
 
+    def get_next_available_card(self):
+        """Find the next unassigned card key from Google Sheets"""
+        try:
+            import gspread
+            from oauth2client.service_account import ServiceAccountCredentials
+            import json
+            
+            if not GOOGLE_SHEETS_CREDS:
+                print("⚠ Google Sheets credentials not configured")
+                return None, None
+            
+            # Parse credentials from environment variable
+            creds_dict = json.loads(GOOGLE_SHEETS_CREDS)
+            
+            # Set up credentials
+            scope = ['https://spreadsheets.google.com/feeds',
+                     'https://www.googleapis.com/auth/drive']
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            client = gspread.authorize(creds)
+            
+            # Open the sheet named "Lock Box Keys"
+            sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet('Lock Box Keys')
+            
+            # Get all rows
+            all_rows = sheet.get_all_values()
+            
+            # Skip header row (row 1) and empty row (row 2)
+            # Start from row 3 (index 2)
+            for i, row in enumerate(all_rows[2:], start=3):  # Start counting from row 3
+                letter = row[0] if len(row) > 0 else ""
+                card_number = row[1] if len(row) > 1 else ""
+                given_to = row[2] if len(row) > 2 else ""
+                
+                # If "Given to" column (C) is empty, this card is available
+                if letter and card_number and not given_to.strip():
+                    card_id = f"{letter} - {card_number}"
+                    print(f"✓ Found available card: {card_id} at row {i}")
+                    return card_id, i  # Return card ID and row number
+            
+            print("⚠ No available cards found in sheet")
+            return None, None
+            
+        except Exception as e:
+            print(f"✗ Error accessing Google Sheets: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
+
+    def assign_card_to_customer(self, row_number, customer_name):
+        """Update Google Sheet with customer name and date"""
+        try:
+            import gspread
+            from oauth2client.service_account import ServiceAccountCredentials
+            import json
+            
+            if not GOOGLE_SHEETS_CREDS:
+                print("⚠ Google Sheets credentials not configured")
+                return False
+            
+            # Parse credentials
+            creds_dict = json.loads(GOOGLE_SHEETS_CREDS)
+            scope = ['https://spreadsheets.google.com/feeds',
+                     'https://www.googleapis.com/auth/drive']
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            client = gspread.authorize(creds)
+            
+            # Open the sheet named "Lock Box Keys"
+            sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet('Lock Box Keys')
+            
+            # Update column C (Given to) and D (Date)
+            today = datetime.now().strftime('%b %d, %Y')
+            sheet.update_cell(row_number, 3, customer_name)  # Column C
+            sheet.update_cell(row_number, 4, today)  # Column D
+            
+            print(f"✓ Updated Google Sheet: Row {row_number}, {customer_name}, {today}")
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error updating Google Sheets: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
     def extract_customer_info(self, body):
         """Extract customer email and name from email body"""
         import re
@@ -209,24 +297,49 @@ class POSEmailMonitor:
         
         return customer_email, customer_name
 
-    def send_customer_email(self, customer_email, customer_name):
-        """Send a welcome email to the customer"""
+    def send_customer_email(self, customer_email, customer_name, card_id=None):
+        """Send a welcome email to the customer with card key instructions"""
         try:
             print(f"Sending welcome email to {customer_email} ({customer_name})...")
             
             msg = MIMEMultipart()
             msg['From'] = EMAIL_ACCOUNT
             msg['To'] = customer_email
-            msg['Subject'] = "Welcome to SSI Wellness Centre!"
+            msg['Cc'] = FORWARD_TO_EMAIL  # CC to info@ssiwellness.com
+            msg['Subject'] = "Welcome to SSI Wellness Centre - Your Card Key Info"
             
-            # Create email body
-            body = f"""Hello {customer_name if customer_name else 'there'},
+            # Create email body with card key instructions
+            if card_id:
+                body = f"""Hello {customer_name if customer_name else 'there'},
 
 Thank you for your recent purchase at Salt Spring Island Wellness Centre!
 
 We're excited to have you as a member. Your membership is now active.
 
+TO ACCESS THE FACILITY:
+
+1. Find the lockbox on the side of the bulletin board at the front door
+2. The lockbox code is: {LOCKBOX_CODE}
+3. Inside the lockbox, take the card key labeled: {card_id}
+4. Use this card key to access the facility during your membership
+
+Please keep your card key safe. If you lose it, there will be a replacement fee.
+
 If you have any questions, please don't hesitate to reach out.
+
+Best regards,
+SSI Wellness Centre Team
+info@ssiwellness.com
+"""
+            else:
+                # Fallback if no card available
+                body = f"""Hello {customer_name if customer_name else 'there'},
+
+Thank you for your recent purchase at Salt Spring Island Wellness Centre!
+
+We're excited to have you as a member. Your membership is now active.
+
+Please contact us at info@ssiwellness.com to arrange your card key pickup.
 
 Best regards,
 SSI Wellness Centre Team
@@ -235,13 +348,14 @@ info@ssiwellness.com
             
             msg.attach(MIMEText(body, 'plain'))
             
-            # Send via SMTP
+            # Send via SMTP - include CC recipient
+            recipients = [customer_email, FORWARD_TO_EMAIL]
             with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
                 server.starttls()
                 server.login(EMAIL_ACCOUNT, EMAIL_PASSWORD)
-                server.send_message(msg)
+                server.sendmail(EMAIL_ACCOUNT, recipients, msg.as_string())
             
-            print(f"✓ Customer email sent successfully to {customer_email}")
+            print(f"✓ Customer email sent successfully to {customer_email} (CC: {FORWARD_TO_EMAIL})")
             return True
             
         except Exception as e:
@@ -371,9 +485,17 @@ Date: {original_msg.get('Date', 'Unknown')}
                 # Send SMS alert
                 self.send_sms_alert()
                 
-                # Send customer email if we found their info
+                # Get next available card key and assign it
+                card_id = None
+                if customer_email and customer_name:
+                    card_id, row_number = self.get_next_available_card()
+                    if card_id and row_number:
+                        # Assign the card in Google Sheets
+                        self.assign_card_to_customer(row_number, customer_name)
+                
+                # Send customer email with card key info
                 if customer_email:
-                    self.send_customer_email(customer_email, customer_name)
+                    self.send_customer_email(customer_email, customer_name, card_id)
 
                 # Mark as processed
                 self.mark_as_processed(message_id, email_date, subject, body)
