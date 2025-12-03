@@ -44,8 +44,7 @@ jobs:
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
-          git fetch origin
-          git reset --hard origin/main
-          git pull origin main
-          git add processed_emails.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update processed emails" && git push) || true
+          git add processed_emails/
+          git commit -m "Update processed emails" || echo "No changes"
+          git pull --rebase origin main || true
+          git push origin main || echo "Push failed"
