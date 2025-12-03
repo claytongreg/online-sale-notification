@@ -187,7 +187,7 @@ class POSEmailMonitor:
             sheet.update_cell(row_number, 4, today)  # Column D - Date
             sheet.update_cell(row_number, 5, "Automated")  # Column E - By Whom
             
-            print(f"✓ Updated Google Sheet: Row {row_number}, {customer_name}, {today}")
+            print(f"✓ Updated Google Sheet: Row {row_number}, {today}")
             return True
             
         except Exception as e:
@@ -234,7 +234,7 @@ class POSEmailMonitor:
     def send_customer_email(self, customer_email, customer_name, card_letter=None, card_number=None):
         """Send a welcome email to the customer with card key instructions"""
         try:
-            print(f"Sending welcome email to {customer_email} ({customer_name})...")
+            print(f"Sending welcome email to customer...")
             
             msg = MIMEMultipart()
             msg['From'] = EMAIL_ACCOUNT
@@ -303,7 +303,7 @@ info@ssiwellness.com
                 server.login(EMAIL_ACCOUNT, EMAIL_PASSWORD)
                 server.sendmail(EMAIL_ACCOUNT, recipients, msg.as_string())
             
-            print(f"✓ Customer email sent successfully to {customer_email} (CC: {FORWARD_TO_EMAIL})")
+            print(f"✓ Customer email sent successfully")
             return True
             
         except Exception as e:
@@ -321,7 +321,7 @@ info@ssiwellness.com
     def forward_email(self, original_msg, email_body):
         """Forward the email to specified address"""
         try:
-            print(f"Forwarding email to {FORWARD_TO_EMAIL}...")
+            print(f"Forwarding email...")
 
             # Create forwarded message
             forward_msg = MIMEMultipart()
@@ -351,7 +351,7 @@ Date: {original_msg.get('Date', 'Unknown')}
                 server.login(EMAIL_ACCOUNT, EMAIL_PASSWORD)
                 server.send_message(forward_msg)
 
-            print(f"✓ Email forwarded successfully to {FORWARD_TO_EMAIL}")
+            print(f"✓ Email forwarded successfully")
             return True
 
         except Exception as e:
@@ -418,7 +418,7 @@ Date: {original_msg.get('Date', 'Unknown')}
                 # Extract customer info
                 customer_email, customer_name = self.extract_customer_info(body)
                 if customer_email:
-                    print(f"Found customer: {customer_name} <{customer_email}>")
+                    print(f"✓ Customer info extracted successfully")
                 else:
                     print("⚠ Could not extract customer email from notification")
 
@@ -497,9 +497,9 @@ Date: {original_msg.get('Date', 'Unknown')}
         print(f"IMAP Server: {IMAP_SERVER}:{IMAP_PORT}")
         print(f"SMTP Server: {SMTP_SERVER}:{SMTP_PORT}")
         print(f"Subject filter: '{SUBJECT_FILTER}'")
-        print(f"Exact phrase match: '{EXACT_MATCH_PHRASE}'")
-        print(f"Forward to: {FORWARD_TO_EMAIL}")
-        print(f"Alert phone: {ALERT_PHONE_NUMBER}")
+        print(f"Exact phrase match: [CONFIGURED]")
+        print(f"Forward to: [CONFIGURED]")
+        print(f"Alert phone: [CONFIGURED]")
         print(f"Check interval: {CHECK_INTERVAL} seconds")
         print()
         print("NOTE: Checking UNSEEN emails only with subject filter")
