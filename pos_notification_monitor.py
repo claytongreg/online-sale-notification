@@ -224,8 +224,8 @@ class POSEmailMonitor:
                     next_line = lines[j].strip()
                     # Skip empty lines and common footer text
                     if next_line and 'Wishing' not in next_line and 'SSI' not in next_line and '@' not in next_line:
-                        # This is likely the name
-                        customer_name = next_line
+                        # Strip HTML tags
+                        customer_name = re.sub(r'<[^>]+>', '', next_line).strip()
                         break
                 break
         
@@ -376,6 +376,11 @@ Date: {original_msg.get('Date', 'Unknown')}
             sender = msg.get('From', '')
             subject = self.decode_email_subject(msg.get('Subject', ''))
             message_id = msg.get('Message-ID', '')
+
+            # Check if sender matches (must be from wellnessliving.com)
+            if 'wellnessliving.com' not in sender.lower():
+                print(f"⚠ Email not from wellnessliving.com, skipping")
+                return
 
             # Check if subject matches our filter
             if SUBJECT_FILTER and SUBJECT_FILTER.lower() not in subject.lower():
