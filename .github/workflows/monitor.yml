@@ -1,0 +1,50 @@
+name: Email Monitor
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Every 5 minutes
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies
+        run: pip install twilio
+        
+      - name: Run monitor
+        env:
+          EMAIL_ACCOUNT: ${{ secrets.EMAIL_ACCOUNT }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          IMAP_SERVER: ${{ secrets.IMAP_SERVER }}
+          IMAP_PORT: ${{ secrets.IMAP_PORT }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
+          ALERT_PHONE_NUMBER: ${{ secrets.ALERT_PHONE_NUMBER }}
+          FORWARD_TO_EMAIL: ${{ secrets.FORWARD_TO_EMAIL }}
+          EXACT_MATCH_PHRASE: ${{ secrets.EXACT_MATCH_PHRASE }}
+          SUBJECT_FILTER: ${{ secrets.SUBJECT_FILTER }}
+        run: |
+          timeout 300 python pos_notification_monitor.py &
+          sleep 60
+          pkill -f pos_notification_monitor.py || true
+          
+      - name: Save processed emails
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add processed_emails.json
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update processed emails"
+          git push || true
