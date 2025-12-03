@@ -174,6 +174,80 @@ class POSEmailMonitor:
                 pass
         return body
 
+    def extract_customer_info(self, body):
+        """Extract customer email and name from email body"""
+        import re
+        
+        # Look for email pattern
+        email_pattern = r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'
+        emails = re.findall(email_pattern, body)
+        
+        # Filter out the wellness living system emails
+        customer_email = None
+        for email_addr in emails:
+            if 'wellnessliving.com' not in email_addr.lower() and 'ssiwellness.com' not in email_addr.lower():
+                customer_email = email_addr
+                break
+        
+        if not customer_email:
+            return None, None
+        
+        # Try to find the name - it's usually on the line after the email
+        lines = body.split('\n')
+        customer_name = None
+        for i, line in enumerate(lines):
+            if customer_email in line:
+                # Check next few lines for the name
+                for j in range(i+1, min(i+5, len(lines))):
+                    next_line = lines[j].strip()
+                    # Skip empty lines and common footer text
+                    if next_line and 'Wishing' not in next_line and 'SSI' not in next_line and '@' not in next_line:
+                        # This is likely the name
+                        customer_name = next_line
+                        break
+                break
+        
+        return customer_email, customer_name
+
+    def send_customer_email(self, customer_email, customer_name):
+        """Send a welcome email to the customer"""
+        try:
+            print(f"Sending welcome email to {customer_email} ({customer_name})...")
+            
+            msg = MIMEMultipart()
+            msg['From'] = EMAIL_ACCOUNT
+            msg['To'] = customer_email
+            msg['Subject'] = "Welcome to SSI Wellness Centre!"
+            
+            # Create email body
+            body = f"""Hello {customer_name if customer_name else 'there'},
+
+Thank you for your recent purchase at Salt Spring Island Wellness Centre!
+
+We're excited to have you as a member. Your membership is now active.
+
+If you have any questions, please don't hesitate to reach out.
+
+Best regards,
+SSI Wellness Centre Team
+info@ssiwellness.com
+"""
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            # Send via SMTP
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(EMAIL_ACCOUNT, EMAIL_PASSWORD)
+                server.send_message(msg)
+            
+            print(f"✓ Customer email sent successfully to {customer_email}")
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error sending customer email: {e}")
+            return False
+
     def contains_exact_phrase(self, body):
         """Check if email body contains the EXACT phrase (case-insensitive)"""
         # Normalize whitespace and compare case-insensitively
@@ -284,11 +358,22 @@ Date: {original_msg.get('Date', 'Unknown')}
             if self.contains_exact_phrase(body):
                 print(f"✓ Email contains EXACT phrase: '{EXACT_MATCH_PHRASE}'")
 
+                # Extract customer info
+                customer_email, customer_name = self.extract_customer_info(body)
+                if customer_email:
+                    print(f"Found customer: {customer_name} <{customer_email}>")
+                else:
+                    print("⚠ Could not extract customer email from notification")
+
                 # Forward the email
                 self.forward_email(msg, body)
 
                 # Send SMS alert
                 self.send_sms_alert()
+                
+                # Send customer email if we found their info
+                if customer_email:
+                    self.send_customer_email(customer_email, customer_name)
 
                 # Mark as processed
                 self.mark_as_processed(message_id, email_date, subject, body)
