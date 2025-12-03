@@ -148,18 +148,17 @@ class POSEmailMonitor:
                 
                 # If "Given to" column (C) is empty, this card is available
                 if letter and card_number and not given_to.strip():
-                    card_id = f"{letter} - {card_number}"
-                    print(f"✓ Found available card: {card_id} at row {i}")
-                    return card_id, i  # Return card ID and row number
+                    print(f"✓ Found available card: {letter} - {card_number} at row {i}")
+                    return letter, card_number, i  # Return letter, card number, and row number
             
             print("⚠ No available cards found in sheet")
-            return None, None
+            return None, None, None
             
         except Exception as e:
             print(f"✗ Error accessing Google Sheets: {e}")
             import traceback
             traceback.print_exc()
-            return None, None
+            return None, None, None
 
     def assign_card_to_customer(self, row_number, customer_name):
         """Update Google Sheet with customer name and date"""
@@ -182,10 +181,11 @@ class POSEmailMonitor:
             # Open the sheet named "Lock Box Keys"
             sheet = client.open_by_key(GOOGLE_SHEET_ID).worksheet('Lock Box Keys')
             
-            # Update column C (Given to) and D (Date)
+            # Update column C (Given to), D (Date), and E (By Whom)
             today = datetime.now().strftime('%b %d, %Y')
-            sheet.update_cell(row_number, 3, customer_name)  # Column C
-            sheet.update_cell(row_number, 4, today)  # Column D
+            sheet.update_cell(row_number, 3, customer_name)  # Column C - Given to
+            sheet.update_cell(row_number, 4, today)  # Column D - Date
+            sheet.update_cell(row_number, 5, "Automated")  # Column E - By Whom
             
             print(f"✓ Updated Google Sheet: Row {row_number}, {customer_name}, {today}")
             return True
@@ -231,7 +231,7 @@ class POSEmailMonitor:
         
         return customer_email, customer_name
 
-    def send_customer_email(self, customer_email, customer_name, card_id=None):
+    def send_customer_email(self, customer_email, customer_name, card_letter=None, card_number=None):
         """Send a welcome email to the customer with card key instructions"""
         try:
             print(f"Sending welcome email to {customer_email} ({customer_name})...")
@@ -243,7 +243,7 @@ class POSEmailMonitor:
             msg['Subject'] = "Welcome to SSI Wellness Centre - Your Card Key Info"
             
             # Create email body with card key instructions
-            if card_id:
+            if card_letter and card_number:
                 body = f"""Hello {customer_name if customer_name else 'there'},
 
 Thank you for your recent purchase at Salt Spring Island Wellness Centre!
@@ -254,10 +254,17 @@ TO ACCESS THE FACILITY:
 
 1. Find the lockbox on the side of the bulletin board at the front door
 2. The lockbox code is: {LOCKBOX_CODE}
-3. Inside the lockbox, take the card key labeled: {card_id}
+3. Inside the lockbox, take the card key labeled with black sharpie: {card_letter} (card number: {card_number})
 4. Use this card key to access the facility during your membership
 
-Please keep your card key safe. If you lose it, there will be a replacement fee.
+IMPORTANT FACILITY RULES:
+
+• Always wear indoor footwear
+• Sign in EVERY time, even when entering with someone else
+• Clean up after yourself
+• Card keys are $20 if lost
+
+Please keep your card key safe and follow all facility rules.
 
 If you have any questions, please don't hesitate to reach out.
 
@@ -274,6 +281,13 @@ Thank you for your recent purchase at Salt Spring Island Wellness Centre!
 We're excited to have you as a member. Your membership is now active.
 
 Please contact us at info@ssiwellness.com to arrange your card key pickup.
+
+IMPORTANT FACILITY RULES:
+
+• Always wear indoor footwear
+• Sign in EVERY time, even when entering with someone else
+• Clean up after yourself
+• Card keys are $20 if lost
 
 Best regards,
 SSI Wellness Centre Team
@@ -415,16 +429,17 @@ Date: {original_msg.get('Date', 'Unknown')}
                 self.send_sms_alert()
                 
                 # Get next available card key and assign it
-                card_id = None
+                card_letter = None
+                card_number = None
                 if customer_email and customer_name:
-                    card_id, row_number = self.get_next_available_card()
-                    if card_id and row_number:
+                    card_letter, card_number, row_number = self.get_next_available_card()
+                    if card_letter and card_number and row_number:
                         # Assign the card in Google Sheets
                         self.assign_card_to_customer(row_number, customer_name)
                 
                 # Send customer email with card key info
                 if customer_email:
-                    self.send_customer_email(customer_email, customer_name, card_id)
+                    self.send_customer_email(customer_email, customer_name, card_letter, card_number)
 
                 print(f"✓ Email processed successfully")
             else:
