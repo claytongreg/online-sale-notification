@@ -59,34 +59,59 @@ SENDER_EMAIL = os.getenv('SENDER_EMAIL', 'noreply@yourpos.com')  # Filter by sen
 SUBJECT_FILTER = os.getenv('SUBJECT_FILTER', 'Sale Has Been Made Notification')  # Filter by subject
 
 # Processed emails tracking file
-PROCESSED_EMAILS_FILE = 'processed_emails.json'
+PROCESSED_EMAILS_DIR = 'processed_emails'
 
 
 class POSEmailMonitor:
     def __init__(self):
         self.twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        Path(PROCESSED_EMAILS_DIR).mkdir(exist_ok=True)
         self.processed_emails = self.load_processed_emails()
 
+    def get_latest_json_file(self):
+        """Get the most recent processed emails JSON file"""
+        files = list(Path(PROCESSED_EMAILS_DIR).glob('processed_*.json'))
+        if files:
+            latest = max(files, key=lambda f: f.stat().st_mtime)
+            return latest
+        return None
+
+    def cleanup_old_files(self, keep_file):
+        """Delete all JSON files except the one to keep"""
+        for file in Path(PROCESSED_EMAILS_DIR).glob('processed_*.json'):
+            if file != keep_file:
+                try:
+                    file.unlink()
+                    print(f"Deleted old file: {file}")
+                except Exception as e:
+                    print(f"Could not delete {file}: {e}")
+
     def load_processed_emails(self):
-        """Load processed emails from JSON file"""
-        if Path(PROCESSED_EMAILS_FILE).exists():
+        """Load processed emails from most recent JSON file"""
+        latest_file = self.get_latest_json_file()
+        if latest_file:
             try:
-                with open(PROCESSED_EMAILS_FILE, 'r') as f:
+                with open(latest_file, 'r') as f:
                     data = json.load(f)
-                    print(f"Loaded {len(data)} previously processed emails from {PROCESSED_EMAILS_FILE}")
+                    print(f"Loaded {len(data)} previously processed emails from {latest_file}")
                     return data
             except Exception as e:
-                print(f"Warning: Could not load {PROCESSED_EMAILS_FILE}: {e}")
+                print(f"Warning: Could not load {latest_file}: {e}")
                 return {}
         return {}
 
     def save_processed_emails(self):
-        """Save processed emails to JSON file"""
+        """Save processed emails to new timestamped JSON file"""
         try:
-            with open(PROCESSED_EMAILS_FILE, 'w') as f:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            new_file = Path(PROCESSED_EMAILS_DIR) / f'processed_{timestamp}.json'
+            with open(new_file, 'w') as f:
                 json.dump(self.processed_emails, f, indent=2)
+            print(f"Saved to {new_file}")
+            # Clean up old files
+            self.cleanup_old_files(new_file)
         except Exception as e:
-            print(f"Warning: Could not save {PROCESSED_EMAILS_FILE}: {e}")
+            print(f"Warning: Could not save: {e}")
 
     def mark_as_processed(self, message_id, email_date, subject, body_preview):
         """Mark an email as processed and save to JSON"""
@@ -265,7 +290,7 @@ Date: {original_msg.get('Date', 'Unknown')}
 
                 # Mark as processed
                 self.mark_as_processed(message_id, email_date, subject, body)
-                print(f"✓ Email marked as processed and saved to {PROCESSED_EMAILS_FILE}")
+                print(f"✓ Email marked as processed and saved")
             else:
                 print(f"✗ Email does NOT contain exact phrase: '{EXACT_MATCH_PHRASE}'")
                 print(f"   Searched in {len(body)} characters of email body")
@@ -327,7 +352,7 @@ Date: {original_msg.get('Date', 'Unknown')}
         print(f"Forward to: {FORWARD_TO_EMAIL}")
         print(f"Alert phone: {ALERT_PHONE_NUMBER}")
         print(f"Check interval: {CHECK_INTERVAL} seconds")
-        print(f"Tracking file: {PROCESSED_EMAILS_FILE}")
+        print(f"Tracking directory: {PROCESSED_EMAILS_DIR}")
         print(f"Previously processed: {len(self.processed_emails)} emails")
         print()
         print("NOTE: Checking ALL emails (read and unread) with subject filter")
