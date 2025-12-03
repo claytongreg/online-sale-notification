@@ -65,6 +65,7 @@ PROCESSED_EMAILS_DIR = 'processed_emails'
 class POSEmailMonitor:
     def __init__(self):
         self.twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        # Create directory first, before trying to load
         Path(PROCESSED_EMAILS_DIR).mkdir(exist_ok=True)
         self.processed_emails = self.load_processed_emails()
 
@@ -72,7 +73,8 @@ class POSEmailMonitor:
         """Get the most recent processed emails JSON file"""
         files = list(Path(PROCESSED_EMAILS_DIR).glob('processed_*.json'))
         if files:
-            latest = max(files, key=lambda f: f.stat().st_mtime)
+            # Sort by filename (which contains timestamp) to get latest
+            latest = sorted(files)[-1]
             return latest
         return None
 
