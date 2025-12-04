@@ -45,6 +45,7 @@ TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID', 'your-account-sid')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN', 'your-auth-token')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER', '+1234567890')
 ALERT_PHONE_NUMBER = os.getenv('ALERT_PHONE_NUMBER', '+1234567890')
+ALERT_PHONE_NUMBER_2 = os.getenv('ALERT_PHONE_NUMBER_2', '')  # Optional second number
 
 # Email forwarding configuration
 FORWARD_TO_EMAIL = os.getenv('FORWARD_TO_EMAIL', 'info@ssiwellness.com')
@@ -279,7 +280,7 @@ This is an automated alert from the POS Email Monitor system.
             
             print(f"✓ No cards alert email sent")
             
-            # Send SMS
+            # Send SMS to both numbers
             try:
                 sms_body = "URGENT: ONLINE BOOKING FAILED - NO ACCESS CARDS AVAILABLE"
                 message = self.twilio_client.messages.create(
@@ -287,7 +288,15 @@ This is an automated alert from the POS Email Monitor system.
                     from_=TWILIO_PHONE_NUMBER,
                     to=ALERT_PHONE_NUMBER
                 )
-                print(f"✓ No cards alert SMS sent")
+                print(f"✓ No cards alert SMS sent to primary number")
+                
+                if ALERT_PHONE_NUMBER_2:
+                    message2 = self.twilio_client.messages.create(
+                        body=sms_body,
+                        from_=TWILIO_PHONE_NUMBER,
+                        to=ALERT_PHONE_NUMBER_2
+                    )
+                    print(f"✓ No cards alert SMS sent to second number")
             except Exception as sms_error:
                 print(f"✗ SMS error: {sms_error}")
             
@@ -460,19 +469,30 @@ Date: {original_msg.get('Date', 'Unknown')}
             return False
 
     def send_sms_alert(self, customer_name=None, card_letter=None, card_number=None):
-        """Send SMS alert via Twilio"""
+        """Send SMS alert via Twilio to all configured numbers"""
         try:
             if customer_name and card_letter and card_number:
                 message_body = f"{customer_name} has purchased online, card key {card_letter} {card_number}"
             else:
                 message_body = "🔔 An online sale has been made!"
 
+            # Send to primary number
             message = self.twilio_client.messages.create(
                 body=message_body,
                 from_=TWILIO_PHONE_NUMBER,
                 to=ALERT_PHONE_NUMBER
             )
-            print(f"✓ SMS sent successfully (SID: {message.sid})")
+            print(f"✓ SMS sent to primary number (SID: {message.sid})")
+            
+            # Send to second number if configured
+            if ALERT_PHONE_NUMBER_2:
+                message2 = self.twilio_client.messages.create(
+                    body=message_body,
+                    from_=TWILIO_PHONE_NUMBER,
+                    to=ALERT_PHONE_NUMBER_2
+                )
+                print(f"✓ SMS sent to second number (SID: {message2.sid})")
+            
             return True
         except Exception as e:
             print(f"✗ Error sending SMS: {e}")
