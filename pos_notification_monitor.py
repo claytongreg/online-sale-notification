@@ -113,7 +113,7 @@ class POSEmailMonitor:
         return body
 
     def get_next_available_card(self):
-        """Find the next unassigned card key from Google Sheets"""
+        """Find the next unassigned card key from Google Sheets and return count"""
         try:
             import gspread
             from oauth2client.service_account import ServiceAccountCredentials
@@ -121,7 +121,7 @@ class POSEmailMonitor:
             
             if not GOOGLE_SHEETS_CREDS:
                 print("⚠ Google Sheets credentials not configured")
-                return None, None
+                return None, None, None, 0
             
             # Parse credentials from environment variable
             creds_dict = json.loads(GOOGLE_SHEETS_CREDS)
@@ -138,6 +138,11 @@ class POSEmailMonitor:
             # Get all rows
             all_rows = sheet.get_all_values()
             
+            # Count all available cards and find first available
+            available_cards = []
+            first_available = None
+            first_available_row = None
+            
             # Skip header row (row 1) and empty row (row 2)
             # Start from row 3 (index 2)
             for i, row in enumerate(all_rows[2:], start=3):  # Start counting from row 3
@@ -147,17 +152,27 @@ class POSEmailMonitor:
                 
                 # If "Given to" column (C) is empty, this card is available
                 if letter and card_number and not given_to.strip():
-                    print(f"✓ Found available card: {letter} - {card_number} at row {i}")
-                    return letter, card_number, i  # Return letter, card number, and row number
+                    available_cards.append((letter, card_number, i))
+                    if first_available is None:
+                        first_available = (letter, card_number)
+                        first_available_row = i
+            
+            total_available = len(available_cards)
+            print(f"ℹ Total available cards: {total_available}")
+            
+            if first_available:
+                letter, card_number = first_available
+                print(f"✓ Found available card: {letter} - {card_number} at row {first_available_row}")
+                return letter, card_number, first_available_row, total_available
             
             print("⚠ No available cards found in sheet")
-            return None, None, None
+            return None, None, None, 0
             
         except Exception as e:
             print(f"✗ Error accessing Google Sheets: {e}")
             import traceback
             traceback.print_exc()
-            return None, None, None
+            return None, None, None, 0
 
     def assign_card_to_customer(self, row_number, customer_name):
         """Update Google Sheet with customer name and date"""
@@ -193,6 +208,93 @@ class POSEmailMonitor:
             print(f"✗ Error updating Google Sheets: {e}")
             import traceback
             traceback.print_exc()
+            return False
+
+    def send_low_inventory_alert(self, remaining_cards):
+        """Send email alert when card inventory is critically low (1 or 0)"""
+        try:
+            print(f"Sending low inventory alert ({remaining_cards} remaining)...")
+            
+            msg = MIMEMultipart()
+            msg['From'] = EMAIL_ACCOUNT
+            msg['To'] = FORWARD_TO_EMAIL
+            msg['Subject'] = "URGENT: ACCESS CARDS CRITICALLY LOW"
+            
+            body = f"""URGENT ALERT
+
+The access card inventory is critically low!
+
+Remaining cards after assignment: {remaining_cards}
+
+Please restock the lockbox immediately to avoid disruption to new member sign-ups.
+
+This is an automated alert from the POS Email Monitor system.
+"""
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(EMAIL_ACCOUNT, EMAIL_PASSWORD)
+                server.send_message(msg)
+            
+            print(f"✓ Low inventory alert sent")
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error sending low inventory alert: {e}")
+            return False
+
+    def send_no_cards_alert(self, customer_name=None):
+        """Send email and SMS when no cards are available to assign"""
+        try:
+            print(f"Sending NO CARDS alert...")
+            
+            # Send email
+            msg = MIMEMultipart()
+            msg['From'] = EMAIL_ACCOUNT
+            msg['To'] = FORWARD_TO_EMAIL
+            msg['Subject'] = "URGENT: ONLINE BOOKING FAILED - NO ACCESS CARDS"
+            
+            body = f"""URGENT ALERT - ACTION REQUIRED
+
+An online booking could not be completed because there are NO access cards available!
+
+Customer: {customer_name if customer_name else 'Unknown'}
+Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+The customer received a welcome email asking them to contact info@ssiwellness.com for card pickup.
+
+IMMEDIATE ACTION NEEDED: Restock access cards and contact the customer to arrange pickup.
+
+This is an automated alert from the POS Email Monitor system.
+"""
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(EMAIL_ACCOUNT, EMAIL_PASSWORD)
+                server.send_message(msg)
+            
+            print(f"✓ No cards alert email sent")
+            
+            # Send SMS
+            try:
+                sms_body = "URGENT: ONLINE BOOKING FAILED - NO ACCESS CARDS AVAILABLE"
+                message = self.twilio_client.messages.create(
+                    body=sms_body,
+                    from_=TWILIO_PHONE_NUMBER,
+                    to=ALERT_PHONE_NUMBER
+                )
+                print(f"✓ No cards alert SMS sent")
+            except Exception as sms_error:
+                print(f"✗ SMS error: {sms_error}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"✗ Error sending no cards alert: {e}")
             return False
 
     def extract_customer_info(self, body):
@@ -430,11 +532,25 @@ Date: {original_msg.get('Date', 'Unknown')}
                 # Get next available card key and assign it
                 card_letter = None
                 card_number = None
+                remaining_cards = 0
+                
                 if customer_email and customer_name:
-                    card_letter, card_number, row_number = self.get_next_available_card()
+                    card_letter, card_number, row_number, total_available = self.get_next_available_card()
+                    
                     if card_letter and card_number and row_number:
                         # Assign the card in Google Sheets
                         self.assign_card_to_customer(row_number, customer_name)
+                        
+                        # Calculate remaining cards AFTER assignment
+                        remaining_cards = total_available - 1
+                        
+                        # Send low inventory alert if 1 or 0 cards remaining
+                        if remaining_cards <= 1:
+                            self.send_low_inventory_alert(remaining_cards)
+                    else:
+                        # No cards available - send urgent alert
+                        print("⚠ NO CARDS AVAILABLE - Sending urgent alerts")
+                        self.send_no_cards_alert(customer_name)
 
                 # Send SMS alert with customer info
                 self.send_sms_alert(customer_name, card_letter, card_number)
