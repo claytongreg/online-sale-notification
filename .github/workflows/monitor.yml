@@ -33,6 +33,7 @@ jobs:
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_PHONE_NUMBER: ${{ secrets.TWILIO_PHONE_NUMBER }}
           ALERT_PHONE_NUMBER: ${{ secrets.ALERT_PHONE_NUMBER }}
+          ALERT_PHONE_NUMBER_2: ${{ secrets.ALERT_PHONE_NUMBER_2 }}
           FORWARD_TO_EMAIL: ${{ secrets.FORWARD_TO_EMAIL }}
           EXACT_MATCH_PHRASE: ${{ secrets.EXACT_MATCH_PHRASE }}
           SUBJECT_FILTER: ${{ secrets.SUBJECT_FILTER }}
